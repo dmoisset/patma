@@ -11,6 +11,11 @@ class NodeColor(Enum):
     BLACK = auto()
 
 
+class Direction(Enum):
+    LEFT = auto()
+    RIGHT = auto()
+
+
 class Comparable(Protocol):
     def __lt__(self, other: Comparable): ...
 
@@ -22,7 +27,6 @@ T = TypeVar("T", bound=Comparable)
 class RBNode(Generic[T]):
     value: T
     color: NodeColor
-    parent: Optional[RBNode] = None
     left: Optional[RBNode] = None
     right: Optional[RBNode] = None
 
@@ -49,6 +53,80 @@ class RBNode(Generic[T]):
         return result + 1
 
 
+class NodeWalker(Generic[T]):
+    def __init__(self, t: RBTree[T]) -> None:
+        self.path = [t.root]
+        self.tree = t
+        self.leaf_direction = Direction.LEFT
+
+    # Information
+    def current(self) -> Optional[RBNode[T]]:
+        return self.path[-1]
+
+    def is_root(self):
+        return len(self.path) == 1
+
+    def parent(self, levels=1):
+        if len(self.path) < levels+1:
+            raise ValueError(f"No level {levels} parent")
+        return self.path[-(levels+1)]
+
+    def is_left_child(self, distance=0) -> bool:
+        if len(self.path) <= distance+1:
+            raise ValueError("this is not defined for the root")
+        if not self.path[-(distance+1)]:
+            return self.leaf_direction == Direction.LEFT
+        else:
+            return self.path[-(distance+2)].left is self.path[-(distance+1)]
+
+    def is_right_child(self, distance=0) -> bool:
+        if len(self.path) <= distance+1:
+            raise ValueError("this is not defined for the root")
+        if not self.path[-(distance+1)]:
+            return self.leaf_direction == Direction.RIGHT
+        else:
+            return self.path[-(distance+2)].right is self.path[-(distance+1)]
+
+    # Tree walking
+    def up(self) -> NodeWalker[T]:
+        if self.is_root():
+            raise ValueError("Can not go up from the root")
+        self.path.pop()
+        return self
+
+    def left(self) -> NodeWalker[T]:
+        c = self.current()
+        if not c:
+            raise ValueError("Can not go left from leaf")
+        self.path.append(c.left)
+        if not c.left:
+            self.leaf_direction = Direction.LEFT
+        return self
+
+    def right(self) -> NodeWalker[T]:
+        c = self.current()
+        if not c:
+            raise ValueError("Can not go right from leaf")
+        self.path.append(c.right)
+        if not c.right:
+            self.leaf_direction = Direction.RIGHT
+        return self
+
+    # Tree modification
+    def update(self, new_child: Optional[RBNode[T]]) -> None:
+        if len(self.path) >= 2:
+            new_parent = self.path[-2]
+            assert new_parent
+            if self.is_left_child():
+                new_parent.left = new_child
+            else:
+                new_parent.right = new_child
+            self.path[-1] = new_child
+        else:  # we are at the root
+            self.tree.root = new_child
+            self.path = [new_child]
+
+
 @dataclass
 class RBTree(Generic[T]):
     root: Optional[RBNode[T]] = None
@@ -66,53 +144,47 @@ class RBTree(Generic[T]):
 
     def add(self, value: T) -> None:
         z = RBNode(value, NodeColor.RED)
-        y = None
-        x = self.root
-        while x:
-            y = x
-            if z.value < x.value:
-                x = x.left
+        w = NodeWalker(self)
+        while node := w.current():
+            if z.value < node.value:
+                w.left()
             else:
-                x = x.right
-        z.parent = y
-        if not y:
-            self.root = z
-        elif z.value < y.value:
-            y.left = z
-        else:
-            y.right = z
-        self._insert_fix(z)
+                w.right()
+        w.update(z)
+        self._insert_fix(w)
 
-    def _insert_fix(self, z: RBNode[T]) -> None:
-        while z.parent and z.parent.color == NodeColor.RED:
-            if z.parent is z.parent.parent.left:
-                y = z.parent.parent.right
+    def _insert_fix(self, z: NodeWalker[T]) -> None:
+        while not z.is_root() and z.parent().color == NodeColor.RED:
+            if z.is_left_child(1):
+                y = z.parent(2).right
                 if y and y.color == NodeColor.RED:
-                    z.parent.color = NodeColor.BLACK
+                    z.parent().color = NodeColor.BLACK
                     y.color = NodeColor.BLACK
-                    z.parent.parent.color = NodeColor.RED
-                    z = z.parent.parent
+                    z.parent(2).color = NodeColor.RED
+                    z.up().up()
                 else:
-                    if z is z.parent.right:
-                        z = z.parent
+                    if z.is_right_child():
+                        z.up()
                         self._left_rotate(z)
-                    z.parent.color = NodeColor.BLACK
-                    z.parent.parent.color = NodeColor.RED
-                    self._right_rotate(z.parent.parent)
+                    z.parent().color = NodeColor.BLACK
+                    z.parent(2).color = NodeColor.RED
+                    self._right_rotate(z.up().up())
+                    z.up().left()
             else:
-                y = z.parent.parent.left
+                y = z.parent(2).left
                 if y and y.color == NodeColor.RED:
-                    z.parent.color = NodeColor.BLACK
+                    z.parent().color = NodeColor.BLACK
                     y.color = NodeColor.BLACK
-                    z.parent.parent.color = NodeColor.RED
-                    z = z.parent.parent
+                    z.parent(2).color = NodeColor.RED
+                    z = z.up().up()
                 else:
-                    if z is z.parent.left:
-                        z = z.parent
+                    if z.is_left_child():
+                        z.up()
                         self._right_rotate(z)
-                    z.parent.color = NodeColor.BLACK
-                    z.parent.parent.color = NodeColor.RED
-                    self._left_rotate(z.parent.parent)
+                    z.parent().color = NodeColor.BLACK
+                    z.parent(2).color = NodeColor.RED
+                    self._left_rotate(z.up().up())
+                    z.up().right()
         self.root.color = NodeColor.BLACK            
 
 
@@ -152,50 +224,27 @@ class RBTree(Generic[T]):
             if n.color == NodeColor.RED:
                 if any(ch.color == NodeColor.RED for ch in (n.left, n.right) if ch):
                     return False
-            # Check consistency of parents
-            if n.left and n.left.parent is not n:
-                return False
-            if n.right and n.right.parent is not n:
-                return False
         # All paths from any node have the same number of black nodes
         return bpbalance(self.root) is not None
 
-    def _left_rotate(self, x: RBNode) -> None:
+    def _left_rotate(self, w: NodeWalker[T]) -> None:
+        x = w.current()
         assert x.right
         y = x.right
-        x.right = y.left
-        if y.left:
-            y.left.parent = x
-        y.parent = x.parent
-        if not x.parent:
-            self.root = y
-        elif x is x.parent.left:
-            x.parent.left = y
-        else:
-            x.parent.right = y
-        y.left = x
-        x.parent = y
+        w.update(RBNode(y.value, y.color, RBNode(x.value, x.color, x.left, y.left), y.right))
+        w.left()  # Follow x
 
-    def _right_rotate(self, y: RBNode) -> None:
+    def _right_rotate(self, w: NodeWalker[T]) -> None:
+        y = w.current()
         assert y.left
         x = y.left
-        y.left = x.right
-        if x.right:
-            x.right.parent = y
-        x.parent = y.parent
-        if not y.parent:
-            self.root = x
-        elif y is y.parent.right:
-            y.parent.right = x
-        else:
-            y.parent.left = x
-        x.right = y
-        y.parent = x
+        w.update(RBNode(x.value, x.color, x.left, RBNode(y.value, y.color, x.right, y.right)))
+        w.right()  # Follow y
 
 
 if __name__ == "__main__":
     import random
-    N = 256
+    N = 255
     # Random insert
     t = RBTree()
     for i in range(N):
