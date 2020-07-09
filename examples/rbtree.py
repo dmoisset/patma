@@ -23,7 +23,7 @@ class Comparable(Protocol):
 T = TypeVar("T", bound=Comparable)
 
 
-@dataclass
+@dataclass(eq=False)
 class RBNode(Generic[T]):
     value: T
     color: NodeColor
