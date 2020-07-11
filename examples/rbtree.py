@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, auto
-
+from types import SimpleNamespace
 from typing import Optional, TypeVar, Generic, Protocol, Iterator
 
 
@@ -84,29 +84,27 @@ class NodeWalker(Generic[T]):
             case [*_, parent, child]: return parent.right is child
 
     # Tree walking
-    def up(self) -> NodeWalker[T]:
+    def up(self) -> RBNode[T]:
         if self.is_root():
             raise ValueError("Can not go up from the root")
         self.path.pop()
-        return self
+        return self.current()
 
-    def left(self) -> NodeWalker[T]:
+    def left(self) -> None:
         c = self.current()
         if not c:
             raise ValueError("Can not go left from leaf")
         self.path.append(c.left)
         if not c.left:
             self.leaf_direction = Direction.LEFT
-        return self
 
-    def right(self) -> NodeWalker[T]:
+    def right(self) -> None:
         c = self.current()
         if not c:
             raise ValueError("Can not go right from leaf")
         self.path.append(c.right)
         if not c.right:
             self.leaf_direction = Direction.RIGHT
-        return self
 
     # Tree modification
     def update(self, new_child: Optional[RBNode[T]]) -> None:
@@ -150,36 +148,33 @@ class RBTree(Generic[T]):
         self._insert_fix(w)
 
     def _insert_fix(self, z: NodeWalker[T]) -> None:
+        family = SimpleNamespace()
         while not z.is_root() and z.parent().color == NodeColor.RED:
-            c = z.current()
-            z.up().up()
-            match z.current():
-                case RBNode(left=(parent := RBNode(left=l, right=r)), right=(uncle := RBNode(color=NodeColor.RED))) if c in (l, r):
-                    # Case 1: right uncle is red
-                    parent.color = NodeColor.BLACK
+            family.this = z.current()
+            family.parent = z.up()
+            match z.up():
+                case (RBNode(left=family.parent, right=(uncle := RBNode(color=NodeColor.RED)))
+                   | RBNode(right=family.parent, left=(uncle := RBNode(color=NodeColor.RED)))):
+                    # Case 1: uncle (either side) is red
+                    family.parent.color = NodeColor.BLACK
                     uncle.color = NodeColor.BLACK
                     z.current().color = NodeColor.RED
-                case RBNode(left=RBNode(right=r), right=RBNode(color=NodeColor.BLACK)|None) if c is r:
-                    # Case 2: right uncle is black, z was right child
+                case RBNode(left=RBNode(right=family.this), right=RBNode(color=NodeColor.BLACK)|None):
+                    # Case 2: right uncle is black, this is right child
                     z.left()
                     self._left_rotate(z)
-                case RBNode(left=(parent := RBNode(left=l)), right=RBNode(color=NodeColor.BLACK)|None) if c is l:
-                    # Case 3: right uncle is black, z was left child
-                    parent.color = NodeColor.BLACK
+                case RBNode(left=RBNode(left=family.this), right=RBNode(color=NodeColor.BLACK)|None):
+                    # Case 3: right uncle is black, this is left child
+                    family.parent.color = NodeColor.BLACK
                     z.current().color = NodeColor.RED
                     self._right_rotate(z)
-                case RBNode(right=(parent := RBNode(left=l, right=r)), left=(uncle := RBNode(color=NodeColor.RED))) if c in (l, r):
-                    # Case 1': left uncle is red
-                    parent.color = NodeColor.BLACK
-                    uncle.color = NodeColor.BLACK
-                    z.current().color = NodeColor.RED
-                case RBNode(left=RBNode(color=NodeColor.BLACK)|None, right=RBNode(left=l)) if c is l:
-                    # Case 2': left uncle is black, z was left child
+                case RBNode(left=RBNode(color=NodeColor.BLACK)|None, right=RBNode(left=family.this)):
+                    # Case 2': left uncle is black, this is left child
                     z.right()
                     self._right_rotate(z)
-                case RBNode(left=RBNode(color=NodeColor.BLACK)|None, right=(parent := RBNode(right=r))) if c is r:
-                    # Case 3': left uncle is black, z was right child
-                    parent.color = NodeColor.BLACK
+                case RBNode(left=RBNode(color=NodeColor.BLACK)|None, right=RBNode(right=family.this)):
+                    # Case 3': left uncle is black, this is right child
+                    family.parent.color = NodeColor.BLACK
                     z.current().color = NodeColor.RED
                     self._left_rotate(z)
         self.root.color = NodeColor.BLACK            
@@ -226,14 +221,14 @@ class RBTree(Generic[T]):
 
     def _left_rotate(self, w: NodeWalker[T]) -> None:
         x = w.current()
-        assert x.right
+        assert x.right, "A non-leaf right node must be present for this rotation"
         y = x.right
         w.update(RBNode(y.value, y.color, RBNode(x.value, x.color, x.left, y.left), y.right))
         w.left()  # Follow x
 
     def _right_rotate(self, w: NodeWalker[T]) -> None:
         y = w.current()
-        assert y.left
+        assert y.left, "A non-leaf left node must be present for this rotation"
         x = y.left
         w.update(RBNode(x.value, x.color, x.left, RBNode(y.value, y.color, x.right, y.right)))
         w.right()  # Follow y
