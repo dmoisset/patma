@@ -27,8 +27,8 @@ T = TypeVar("T", bound=Comparable)
 class RBNode(Generic[T]):
     value: T
     color: NodeColor
-    left: Optional[RBNode] = None
-    right: Optional[RBNode] = None
+    left: Optional[RBNode[T]] = None
+    right: Optional[RBNode[T]] = None
 
     def __iter__(self) -> Iterator[T]:
         if self.left:
@@ -76,12 +76,14 @@ class NodeWalker(Generic[T]):
             case [root]: raise ValueError("this is not defined for the root")
             case [*_, None]: return self.leaf_direction == Direction.LEFT
             case [*_, parent, child]: return parent.left is child
+        raise TypeError("Should never happen")
 
     def is_right_child(self) -> bool:
         match self.path:
             case [root]: raise ValueError("this is not defined for the root")
             case [*_, None]: return self.leaf_direction == Direction.RIGHT
             case [*_, parent, child]: return parent.right is child
+        raise TypeError("Should never happen")
 
     # Tree walking
     def up(self) -> RBNode[T]:
@@ -153,8 +155,8 @@ class RBTree(Generic[T]):
             family.this = z.current()
             family.parent = z.up()
             match z.up():
-                case (RBNode(left=family.parent, right=(uncle := RBNode(color=NodeColor.RED)))
-                   | RBNode(right=family.parent, left=(uncle := RBNode(color=NodeColor.RED)))):
+                case (RBNode(left=family.parent, right=RBNode(color=NodeColor.RED) as uncle)
+                   | RBNode(right=family.parent, left=RBNode(color=NodeColor.RED) as uncle)):
                     # Case 1: uncle (either side) is red
                     family.parent.color = NodeColor.BLACK
                     uncle.color = NodeColor.BLACK
@@ -238,7 +240,7 @@ if __name__ == "__main__":
     import random
     N = 255
     # Random insert
-    t = RBTree()
+    t: RBTree[int] = RBTree()
     for i in range(N):
         t.add(random.randrange(1000))
     assert t.invariant()
